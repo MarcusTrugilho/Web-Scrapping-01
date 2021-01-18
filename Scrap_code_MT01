@@ -1,0 +1,139 @@
+# Loading necessary libraries
+
+import pandas as pd
+import numpy as np
+from bs4 import BeautifulSoup
+from requests import get
+from selenium import webdriver
+
+import warnings
+warnings.filterwarnings("ignore")
+
+from tqdm import tqdm
+
+# Instantiating the Chromedriver
+
+path = 'chromedriver.exe'
+options = webdriver.ChromeOptions()
+options.add_argument("--start-maximized")
+driver = webdriver.Chrome(r'local_chromedriver_path', chrome_options = options)
+
+# Instantiating the URL to be scrapped
+
+url = 'TARGET_URL'
+
+# Parsing the HTML code for use
+
+driver.get(url)
+
+text = driver.page_source
+
+parsed_content = BeautifulSoup(text, 'html.parser')
+
+# Locating the target HTML blocks to be scrapped
+# Here, due to specific characteristics of the page, 
+# we need to separate the scrappind into two blocks, 
+# because the content is in different classes in the page. 
+
+block1 = parsed_content.findAll(name='div', attrs={'class':'MAIN_CLASS_01'})
+ag_list1 = block1[0].findAll('ul')
+
+block2 = parsed_content.findAll(name='div', attrs={'class':'MAIN_CLASS_02'})
+ag_list2 = block2[0].findAll('ul')
+
+# Checking the lenght of the blocks to have an idea of the size of each one and time needed for the task.
+
+print(len(ag_list1))
+print(len(ag_list2))
+
+# Creating the base DataFrame for the input of the scrapped data
+# Rmk: we are not getting everything on the page, but only the info we needed for this study.
+
+ag_detalhes = pd.DataFrame(columns=['field1',
+                                    'field2', 
+                                    'field3', 
+                                    'field4', 
+                                    'field5', 
+                                    'field6', 
+                                    'field7', 
+                                    'field8', 
+                                    'field9', 
+                                    'field10', 
+                                    'field11', 
+                                    'field12', 
+                                    'field13'])
+                                    
+# Acrapping the first portion of the data.
+# We are using the TQDM in order to see the progress and total estimated time for conclusion.
+# Also, we have to do some cleaning so the data can be combined with the second portion in the final file.
+# In the end, we already concatenate the data into the base dataframe.
+
+for n in tqdm(ag_list1):
+    x = n.a.get('href')
+    url_sobre = driver.get('BASE URL OF THE PAGE' + x + 'COMPLEMENT')
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    detalhes = soup.find_all('span', {'style': 'font-weight: bold;'})
+
+    ls = []
+
+    for _ in detalhes:
+        ls.append(_.text.strip())
+
+    df_ag_detalhes = pd.DataFrame(data=ls)
+    df_ag_detalhes = df_ag_detalhes.replace({r'\s+$': '', r'^\s+': ''}, regex=True).replace(r'\n',  ' ', regex=True)
+    df_ag_detalhes[['campo','valor']] = df_ag_detalhes[0].str.split(': ', expand=True)
+    df_ag_detalhes.drop(columns=0, inplace=True)
+    df_ag_detalhes['campo'] = [re.sub(' +', ' ', l) for l in df_ag_detalhes['campo']]
+    df_ag_detalhes = df_ag_detalhes.set_index('campo').T
+    ag_detalhes = pd.concat([ag_detalhes, df_ag_detalhes], axis=0)
+    
+# Acrapping the second portion of the data.
+# We are using the TQDM in order to see the progress and total estimated time for conclusion.
+# Also, we have to do some cleaning so the data can be combined with the first portion in the final file.
+# In the end, we already concatenate the data into the base dataframe so we can have the full data scrapped.
+
+for m in tqdm(ag_list2):
+    try:
+        y = m.a.get('href')
+        url_sobre2 = driver.get('BASE URL OF THE PAGE' + y)
+        soup2 = BeautifulSoup(driver.page_source, 'html.parser').find('div', class_='TARGET_CLASS')
+        detalhes2 = soup2.find_all('strong')
+        detalhes3 = soup2.find_all('span')
+        
+    except:
+        pass
+    
+    else:
+        ls2 = []
+
+        for _ in detalhes2:
+            ls2.append(_.text.strip())
+        ls2 = [s.strip(':') for s in ls2]
+
+        df_ag_campos = pd.DataFrame(data=ls2)
+        df_ag_campos.rename(columns={0 : 'campo'}, inplace=True)
+
+        ls3 = []
+
+        for _ in detalhes3:
+            ls3.append(_.text.strip())
+
+        df_ag_valores = pd.DataFrame(data=ls3)
+        df_ag_valores.rename(columns={0 : 'valor'}, inplace=True)
+
+        df_ag_detalhes2 = pd.concat([df_ag_campos, df_ag_valores], axis=1)
+
+        df_ag_detalhes2 = df_ag_detalhes2.set_index('campo').T
+        ag_detalhes = pd.concat([ag_detalhes, df_ag_detalhes2], axis=0)
+        
+# Fine tuning the final dataframe for csv recording
+
+ag_detalhes.reset_index(inplace=True)
+ag_detalhes.drop(columns=['index'], axis=1, inplace=True)
+ag_detalhes['field5'] = ag_detalhes['field5'].replace(r'\n',  ' ', regex=True
+                                                         ).replace(r' +', ' ', regex=True
+                                                                  ).replace(r' ,', ',', regex=True)
+                                                                  
+#Saving to CSV in order to use for other aplications.
+
+ag_detalhes.to_csv('output_file.csv', encoding='utf-16', sep=';')                                                                  
